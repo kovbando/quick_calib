@@ -15,6 +15,8 @@ from tqdm import tqdm
 # Checkerboard size as inner corners (columns, rows)
 CHECKERBOARD_SIZE = (8, 6)
 SQUARE_SIZE = 1.0
+# Camera pixel size in micrometers. Set to 0 to disable mm focal length output.
+PIXEL_SIZE_UM = 4.8
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 
@@ -151,6 +153,16 @@ def _compute_fov_summary(
     fdiag = 0.5 * (fx + fy)
     fov_d = 2.0 * np.degrees(np.arctan(diag / (2.0 * fdiag)))
 
+    focal_mm_line = None
+    if PIXEL_SIZE_UM > 0.0:
+        pixel_size_mm = PIXEL_SIZE_UM / 1000.0
+        fx_mm = fx * pixel_size_mm
+        fy_mm = fy * pixel_size_mm
+        favg_mm = favg * pixel_size_mm
+        focal_mm_line = (
+            f"Focal length (mm): fx={fx_mm:.4f}, fy={fy_mm:.4f}, avg={favg_mm:.4f}"
+        )
+
     summary_lines = [
         "Calibration summary:",
         f"Image resolution: {width} x {height}",
@@ -164,6 +176,9 @@ def _compute_fov_summary(
         np.array2string(camera_matrix, precision=6, max_line_width=120),
     ]
 
+    if focal_mm_line is not None:
+        summary_lines.insert(3, focal_mm_line)
+
     log_lines = [
         f"Focal length (px): fx={fx:.4f}, fy={fy:.4f}, avg={favg:.4f}",
         f"Horizontal FOV (deg): {fov_x:.4f}",
@@ -171,6 +186,9 @@ def _compute_fov_summary(
         f"Diagonal FOV (deg): {fov_d:.4f}",
         f"Principal point (px): cx={cx:.2f}, cy={cy:.2f}",
     ]
+
+    if focal_mm_line is not None:
+        log_lines.insert(1, focal_mm_line)
 
     return summary_lines, log_lines
 
