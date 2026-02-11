@@ -129,6 +129,52 @@ def _save_matrix_text(found_dir: Path, camera_matrix: np.ndarray) -> None:
     logging.info("Saved calibration matrix text to %s", output_path)
 
 
+def _save_summary(found_dir: Path, summary_lines: List[str]) -> None:
+    output_path = found_dir / "summary.txt"
+    output_path.write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
+    logging.info("Saved calibration summary to %s", output_path)
+
+
+def _compute_fov_summary(
+    camera_matrix: np.ndarray, image_size: Tuple[int, int]
+) -> Tuple[List[str], List[str]]:
+    width, height = image_size
+    fx = float(camera_matrix[0, 0])
+    fy = float(camera_matrix[1, 1])
+    cx = float(camera_matrix[0, 2])
+    cy = float(camera_matrix[1, 2])
+    favg = 0.5 * (fx + fy)
+
+    fov_x = 2.0 * np.degrees(np.arctan(width / (2.0 * fx)))
+    fov_y = 2.0 * np.degrees(np.arctan(height / (2.0 * fy)))
+    diag = float(np.hypot(width, height))
+    fdiag = 0.5 * (fx + fy)
+    fov_d = 2.0 * np.degrees(np.arctan(diag / (2.0 * fdiag)))
+
+    summary_lines = [
+        "Calibration summary:",
+        f"Image resolution: {width} x {height}",
+        f"Focal length (px): fx={fx:.4f}, fy={fy:.4f}, avg={favg:.4f}",
+        f"Horizontal FOV (deg): {fov_x:.4f}",
+        f"Vertical FOV (deg): {fov_y:.4f}",
+        f"Diagonal FOV (deg): {fov_d:.4f}",
+        f"Principal point (px): cx={cx:.2f}, cy={cy:.2f}",
+        "",
+        "Camera matrix K:",
+        np.array2string(camera_matrix, precision=6, max_line_width=120),
+    ]
+
+    log_lines = [
+        f"Focal length (px): fx={fx:.4f}, fy={fy:.4f}, avg={favg:.4f}",
+        f"Horizontal FOV (deg): {fov_x:.4f}",
+        f"Vertical FOV (deg): {fov_y:.4f}",
+        f"Diagonal FOV (deg): {fov_d:.4f}",
+        f"Principal point (px): cx={cx:.2f}, cy={cy:.2f}",
+    ]
+
+    return summary_lines, log_lines
+
+
 def _copy_found_images(found_dir: Path, image_paths: Iterable[Path]) -> None:
     found_dir.mkdir(parents=True, exist_ok=True)
     for image_path in image_paths:
@@ -223,8 +269,13 @@ def main() -> int:
 
     logging.info("Camera matrix K:\n%s", np.array2string(camera_matrix, precision=6))
 
+    summary_lines, log_lines = _compute_fov_summary(camera_matrix, image_size)
+    for line in log_lines:
+        logging.info(line)
+
     _save_matrix(found_dir, camera_matrix)
     _save_matrix_text(found_dir, camera_matrix)
+    _save_summary(found_dir, summary_lines)
     return 0
 
 

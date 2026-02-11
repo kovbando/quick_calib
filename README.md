@@ -12,16 +12,14 @@
 ## Requirements
 - Python 3.8+
 - See requirements.txt for dependencies
-
-Install:
-pip install -r requirements.txt
+- `pip install -r requirements.txt`
 
 ## Configuration
 Edit the checkerboard size at the top of quick_calib.py:
 CHECKERBOARD_SIZE = (cols, rows)
 
 ## Usage
-python quick_calib.py path\to\images
+`python quick_calib.py path\to\images`
 
 ## Output
 - found\ (subfolder with detected images)
