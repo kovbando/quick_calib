@@ -13,7 +13,7 @@ import numpy as np
 from tqdm import tqdm
 
 # Checkerboard size as inner corners (columns, rows)
-CHECKERBOARD_SIZE = (9, 6)
+CHECKERBOARD_SIZE = (8, 6)
 SQUARE_SIZE = 1.0
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
@@ -123,6 +123,12 @@ def _save_matrix(found_dir: Path, camera_matrix: np.ndarray) -> None:
     logging.info("Saved calibration matrix to %s", output_path)
 
 
+def _save_matrix_text(found_dir: Path, camera_matrix: np.ndarray) -> None:
+    output_path = found_dir / "K.txt"
+    np.savetxt(str(output_path), camera_matrix, fmt="%.10f")
+    logging.info("Saved calibration matrix text to %s", output_path)
+
+
 def _copy_found_images(found_dir: Path, image_paths: Iterable[Path]) -> None:
     found_dir.mkdir(parents=True, exist_ok=True)
     for image_path in image_paths:
@@ -215,7 +221,10 @@ def main() -> int:
     mean_error = float(np.mean(errors)) if errors else 0.0
     logging.info("Mean reprojection error: %.4f", mean_error)
 
+    logging.info("Camera matrix K:\n%s", np.array2string(camera_matrix, precision=6))
+
     _save_matrix(found_dir, camera_matrix)
+    _save_matrix_text(found_dir, camera_matrix)
     return 0
 
 
