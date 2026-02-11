@@ -17,6 +17,8 @@ CHECKERBOARD_SIZE = (8, 6)
 SQUARE_SIZE = 1.0
 # Camera pixel size in micrometers. Set to 0 to disable mm focal length output.
 PIXEL_SIZE_UM = 4.8
+# Max number of images to use for calibration. Set to 0 to use all.
+MAX_CALIB_IMAGES = 100
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 
@@ -212,6 +214,22 @@ def _validate_image_sizes(image_sizes: List[Tuple[int, int]]) -> Tuple[int, int]
     return reference
 
 
+def _select_calibration_subset(
+    valid_paths: List[Path],
+    image_points: List[np.ndarray],
+    image_sizes: List[Tuple[int, int]],
+    max_images: int,
+) -> Tuple[List[Path], List[np.ndarray], List[Tuple[int, int]]]:
+    if max_images <= 0 or len(valid_paths) <= max_images:
+        return valid_paths, image_points, image_sizes
+
+    indices = np.linspace(0, len(valid_paths) - 1, max_images, dtype=int)
+    selected_paths = [valid_paths[i] for i in indices]
+    selected_points = [image_points[i] for i in indices]
+    selected_sizes = [image_sizes[i] for i in indices]
+    return selected_paths, selected_points, selected_sizes
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Camera calibration from checkerboard images."
@@ -246,6 +264,20 @@ def main() -> int:
     found_dir = input_dir / "found"
     _copy_found_images(found_dir, valid_paths)
     logging.info("Copied %d images to %s", len(valid_paths), found_dir)
+
+    if MAX_CALIB_IMAGES > 0 and len(valid_paths) > MAX_CALIB_IMAGES:
+        skip_count = len(valid_paths) - MAX_CALIB_IMAGES
+        logging.info(
+            "Limiting calibration to %d images (skipping %d)",
+            MAX_CALIB_IMAGES,
+            skip_count,
+        )
+    valid_paths, image_points, image_sizes = _select_calibration_subset(
+        valid_paths,
+        image_points,
+        image_sizes,
+        MAX_CALIB_IMAGES,
+    )
 
     image_size = _validate_image_sizes(image_sizes)
     objp = _prepare_object_points(CHECKERBOARD_SIZE, SQUARE_SIZE)
