@@ -1,5 +1,6 @@
 # quick_calib
-Camera calibration tool for generating a 3x3 intrinsic matrix from checkerboard images.
+- Camera calibration tool for generating a 3x3 intrinsic matrix from checkerboard images.
+- For **way better** results use a calibration object with a white bezel around the checkerboard pattern
 
 ## Overview
 1. Scans an input directory for images.
@@ -28,5 +29,6 @@ python quick_calib.py path\to\images
 - found\K.txt (plain text 3x3 matrix)
 
 ## Notes
+- For **way better** results use a calibration object with a white bezel around the checkerboard pattern
 - All images must have the same resolution.
 - At least 3 valid checkerboard images are required.
