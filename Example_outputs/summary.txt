@@ -1,0 +1,17 @@
+Calibration summary:
+Images in input dir: 1771
+Images with checkerboard: 1103
+Images used for calibration: 100
+Mean reprojection error: 0.3343
+Image resolution: 1920 x 1200
+Focal length (mm): fx=6.0560, fy=6.0557, avg=6.0559
+Focal length (px): fx=1261.6754, fy=1261.6001, avg=1261.6378
+Horizontal FOV (deg): 74.5345
+Vertical FOV (deg): 50.8703
+Diagonal FOV (deg): 83.8038
+Principal point (px): cx=932.15, cy=677.37
+
+Camera matrix K:
+[[1.261675e+03 0.000000e+00 9.321451e+02]
+ [0.000000e+00 1.261600e+03 6.773722e+02]
+ [0.000000e+00 0.000000e+00 1.000000e+00]]

@@ -140,7 +140,12 @@ def _save_summary(found_dir: Path, summary_lines: List[str]) -> None:
 
 
 def _compute_fov_summary(
-    camera_matrix: np.ndarray, image_size: Tuple[int, int]
+    camera_matrix: np.ndarray,
+    image_size: Tuple[int, int],
+    total_images: int,
+    valid_images: int,
+    used_images: int,
+    mean_error: float,
 ) -> Tuple[List[str], List[str]]:
     width, height = image_size
     fx = float(camera_matrix[0, 0])
@@ -167,6 +172,10 @@ def _compute_fov_summary(
 
     summary_lines = [
         "Calibration summary:",
+        f"Images in input dir: {total_images}",
+        f"Images with checkerboard: {valid_images}",
+        f"Images used for calibration: {used_images}",
+        f"Mean reprojection error: {mean_error:.4f}",
         f"Image resolution: {width} x {height}",
         f"Focal length (px): fx={fx:.4f}, fy={fy:.4f}, avg={favg:.4f}",
         f"Horizontal FOV (deg): {fov_x:.4f}",
@@ -179,7 +188,7 @@ def _compute_fov_summary(
     ]
 
     if focal_mm_line is not None:
-        summary_lines.insert(3, focal_mm_line)
+        summary_lines.insert(6, focal_mm_line)
 
     log_lines = [
         f"Focal length (px): fx={fx:.4f}, fy={fy:.4f}, avg={favg:.4f}",
@@ -264,6 +273,7 @@ def main() -> int:
     found_dir = input_dir / "found"
     _copy_found_images(found_dir, valid_paths)
     logging.info("Copied %d images to %s", len(valid_paths), found_dir)
+    total_valid_images = len(valid_paths)
 
     if MAX_CALIB_IMAGES > 0 and len(valid_paths) > MAX_CALIB_IMAGES:
         skip_count = len(valid_paths) - MAX_CALIB_IMAGES
@@ -319,7 +329,14 @@ def main() -> int:
 
     logging.info("Camera matrix K:\n%s", np.array2string(camera_matrix, precision=6))
 
-    summary_lines, log_lines = _compute_fov_summary(camera_matrix, image_size)
+    summary_lines, log_lines = _compute_fov_summary(
+        camera_matrix,
+        image_size,
+        total_images=len(image_paths),
+        valid_images=total_valid_images,
+        used_images=len(image_points),
+        mean_error=mean_error,
+    )
     for line in log_lines:
         logging.info(line)
 
