@@ -16,7 +16,8 @@ from tqdm import tqdm
 CHECKERBOARD_SIZE = (8, 6)
 SQUARE_SIZE = 1.0
 # Camera pixel size in micrometers. Set to 0 to disable mm focal length output.
-PIXEL_SIZE_UM = 4.8
+#PIXEL_SIZE_UM = 4.8 # Use this for typical 1/2.3" sensors. Adjust as needed for your camera.
+PIXEL_SIZE_UM = 3.45 # Use this for typical 1/3" sensors. Adjust as needed for your camera.
 # Max number of images to use for calibration. Set to 0 to use all.
 MAX_CALIB_IMAGES = 100
 
