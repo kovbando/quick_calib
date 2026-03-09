@@ -140,6 +140,25 @@ def _save_summary(found_dir: Path, summary_lines: List[str]) -> None:
     logging.info("Saved calibration summary to %s", output_path)
 
 
+def _build_vector_lines(
+    vectors: List[np.ndarray],
+    calibration_paths: Optional[List[Path]] = None,
+) -> List[str]:
+    lines: List[str] = []
+    for i, vec in enumerate(vectors):
+        image_label = f"Image {i}"
+        if calibration_paths is not None and i < len(calibration_paths):
+            image_label = calibration_paths[i].name
+        lines.append(f"{image_label}: {vec.flatten().tolist()}")
+    return lines
+
+
+def _save_vector_file(found_dir: Path, filename: str, lines: List[str]) -> None:
+    output_path = found_dir / filename
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    logging.info("Saved vector list to %s", output_path)
+
+
 def _compute_fov_summary(
     camera_matrix: np.ndarray,
     image_size: Tuple[int, int],
@@ -386,6 +405,10 @@ def main() -> int:
     _save_matrix(found_dir, camera_matrix)
     _save_matrix_text(found_dir, camera_matrix)
     _save_summary(found_dir, summary_lines)
+    r_lines = _build_vector_lines(rvecs, valid_paths)
+    t_lines = _build_vector_lines(tvecs, valid_paths)
+    _save_vector_file(found_dir, "R.txt", r_lines)
+    _save_vector_file(found_dir, "T.txt", t_lines)
     return 0
 
 

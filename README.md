@@ -31,6 +31,8 @@ after installing the required packages, check the top of the script for the conf
 - found\ (subfolder with detected images)
 - found\K.mat (MAT-file with variable K)
 - found\K.txt (plain text 3x3 matrix)
+- found\R.txt (rotation vectors per image filename)
+- found\T.txt (translation vectors per image filename)
 - found\summary.txt (FOVs, principal point, focal length, and matrix copy)
 
 ## Notes
