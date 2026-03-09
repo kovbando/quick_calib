@@ -205,10 +205,29 @@ def _compute_fov_summary(
     return summary_lines, log_lines
 
 
-def _copy_found_images(found_dir: Path, image_paths: Iterable[Path]) -> None:
+def _copy_found_images(
+    found_dir: Path,
+    image_paths: Iterable[Path],
+    image_points: Iterable[np.ndarray],
+    checkerboard_size: Tuple[int, int],
+) -> None:
     found_dir.mkdir(parents=True, exist_ok=True)
-    for image_path in image_paths:
-        shutil.copy2(image_path, found_dir / image_path.name)
+    for image_path, corners in zip(image_paths, image_points):
+        image = cv2.imread(str(image_path))
+        output_path = found_dir / image_path.name
+
+        if image is None:
+            logging.warning(
+                "Could not load %s for annotation. Copying original image.",
+                image_path.name,
+            )
+            shutil.copy2(image_path, output_path)
+            continue
+
+        # drawChessboardCorners expects Nx1x2 corner shape.
+        corners_for_draw = corners.reshape(-1, 1, 2).astype(np.float32)
+        cv2.drawChessboardCorners(image, checkerboard_size, corners_for_draw, True)
+        cv2.imwrite(str(output_path), image)
 
 
 def _validate_image_sizes(image_sizes: List[Tuple[int, int]]) -> Tuple[int, int]:
@@ -272,7 +291,7 @@ def main() -> int:
         return 1
 
     found_dir = input_dir / "found"
-    _copy_found_images(found_dir, valid_paths)
+    _copy_found_images(found_dir, valid_paths, image_points, CHECKERBOARD_SIZE)
     logging.info("Copied %d images to %s", len(valid_paths), found_dir)
     total_valid_images = len(valid_paths)
 
