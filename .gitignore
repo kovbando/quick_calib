@@ -1,6 +1,7 @@
 venv/
 output/
 found/
+bat.bat
 *.log
 *.tmp
 bat.bat

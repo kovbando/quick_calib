@@ -147,6 +147,9 @@ def _compute_fov_summary(
     valid_images: int,
     used_images: int,
     mean_error: float,
+    rvecs: Optional[List[np.ndarray]] = None,
+    tvecs: Optional[List[np.ndarray]] = None,
+    calibration_paths: Optional[List[Path]] = None,
 ) -> Tuple[List[str], List[str]]:
     width, height = image_size
     fx = float(camera_matrix[0, 0])
@@ -190,6 +193,23 @@ def _compute_fov_summary(
 
     if focal_mm_line is not None:
         summary_lines.insert(6, focal_mm_line)
+
+    # Add rvecs and tvecs if provided
+    if rvecs is not None and tvecs is not None:
+        summary_lines.append("")
+        summary_lines.append("Rotation vectors (rvecs):")
+        for i, rvec in enumerate(rvecs):
+            image_label = f"Image {i}"
+            if calibration_paths is not None and i < len(calibration_paths):
+                image_label = calibration_paths[i].name
+            summary_lines.append(f"  {image_label}: {rvec.flatten().tolist()}")
+        summary_lines.append("")
+        summary_lines.append("Translation vectors (tvecs):")
+        for i, tvec in enumerate(tvecs):
+            image_label = f"Image {i}"
+            if calibration_paths is not None and i < len(calibration_paths):
+                image_label = calibration_paths[i].name
+            summary_lines.append(f"  {image_label}: {tvec.flatten().tolist()}")
 
     log_lines = [
         f"Focal length (px): fx={fx:.4f}, fy={fy:.4f}, avg={favg:.4f}",
@@ -356,6 +376,9 @@ def main() -> int:
         valid_images=total_valid_images,
         used_images=len(image_points),
         mean_error=mean_error,
+        rvecs=rvecs,
+        tvecs=tvecs,
+        calibration_paths=valid_paths,
     )
     for line in log_lines:
         logging.info(line)
