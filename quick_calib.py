@@ -13,15 +13,118 @@ import numpy as np
 from tqdm import tqdm
 
 # Checkerboard size as inner corners (columns, rows)
-CHECKERBOARD_SIZE = (8, 6)
+CHECKERBOARD_SIZE = (8, 11)
 SQUARE_SIZE = 1.0
+# Set to True for checkerboards decorated with ChArUco markers.
+# When enabled, ArUco/ChArUco detections are used to stabilize checkerboard orientation.
+HAS_CHARUCO_MARKERS = False
+# OpenCV ArUco dictionary name. Examples: DICT_4X4_50, DICT_5X5_100.
+CHARUCO_ARUCO_DICT = "DICT_4X4_50"
+# Number of checker squares in X/Y for ChArUco board creation.
+# For a checkerboard with inner corners (cols, rows), these are typically (cols + 1, rows + 1).
+CHARUCO_SQUARES_X = CHECKERBOARD_SIZE[0] + 1
+CHARUCO_SQUARES_Y = CHECKERBOARD_SIZE[1] + 1
+# Marker side length in the same unit as SQUARE_SIZE.
+CHARUCO_MARKER_LENGTH = SQUARE_SIZE * 0.7
 # Camera pixel size in micrometers. Set to 0 to disable mm focal length output.
 #PIXEL_SIZE_UM = 4.8 # Use this for typical 1/2.3" sensors. Adjust as needed for your camera.
-PIXEL_SIZE_UM = 3.45 # Use this for typical 1/3" sensors. Adjust as needed for your camera.
+#PIXEL_SIZE_UM = 3.45 # Use this for typical 1/3" sensors. Adjust as needed for your camera.
+PIXEL_SIZE_UM = 0.0 # Set to 0 to disable mm focal length output.
 # Max number of images to use for calibration. Set to 0 to use all.
 MAX_CALIB_IMAGES = 100
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
+
+
+def _get_aruco_dictionary(dict_name: str):
+    aruco = cv2.aruco
+    dict_id = getattr(aruco, dict_name, None)
+    if dict_id is None:
+        raise ValueError(
+            f"Unknown ArUco dictionary '{dict_name}'. "
+            "Use a valid OpenCV dictionary constant name, e.g. DICT_4X4_50."
+        )
+    return aruco.getPredefinedDictionary(dict_id)
+
+
+def _create_charuco_board(cols: int, rows: int, square_length: float, marker_length: float, dictionary):
+    aruco = cv2.aruco
+    if hasattr(aruco, "CharucoBoard"):
+        return aruco.CharucoBoard((cols, rows), square_length, marker_length, dictionary)
+    return aruco.CharucoBoard_create(cols, rows, square_length, marker_length, dictionary)
+
+
+def _generate_orientation_permutations(cols: int, rows: int) -> List[np.ndarray]:
+    idx = np.arange(rows * cols).reshape(rows, cols)
+    permutations = [
+        idx.copy(),
+        np.fliplr(idx),
+        np.flipud(idx),
+        np.flipud(np.fliplr(idx)),
+    ]
+    return [p.reshape(-1) for p in permutations]
+
+
+def _reorder_corners_with_charuco(
+    gray: np.ndarray,
+    checker_corners: np.ndarray,
+    checkerboard_size: Tuple[int, int],
+) -> np.ndarray:
+    cols, rows = checkerboard_size
+    if checker_corners.shape[0] != cols * rows:
+        return checker_corners
+
+    aruco = cv2.aruco
+    dictionary = _get_aruco_dictionary(CHARUCO_ARUCO_DICT)
+    params = aruco.DetectorParameters()
+    marker_corners, marker_ids, _ = aruco.detectMarkers(
+        gray,
+        dictionary,
+        parameters=params,
+    )
+    if marker_ids is None or len(marker_ids) == 0:
+        return checker_corners
+
+    board = _create_charuco_board(
+        CHARUCO_SQUARES_X,
+        CHARUCO_SQUARES_Y,
+        SQUARE_SIZE,
+        CHARUCO_MARKER_LENGTH,
+        dictionary,
+    )
+    _, charuco_corners, charuco_ids = aruco.interpolateCornersCharuco(
+        marker_corners,
+        marker_ids,
+        gray,
+        board,
+    )
+    if charuco_ids is None or charuco_corners is None or len(charuco_ids) < 4:
+        return checker_corners
+
+    expected_count = cols * rows
+    valid_pairs: List[Tuple[int, np.ndarray]] = []
+    for char_id, corner in zip(charuco_ids.flatten(), charuco_corners.reshape(-1, 2)):
+        if 0 <= int(char_id) < expected_count:
+            valid_pairs.append((int(char_id), corner))
+
+    if len(valid_pairs) < 4:
+        return checker_corners
+
+    permutations = _generate_orientation_permutations(cols, rows)
+    best_score = float("inf")
+    best_perm = permutations[0]
+
+    for perm in permutations:
+        permuted = checker_corners[perm]
+        residuals = []
+        for expected_idx, char_pt in valid_pairs:
+            residuals.append(np.linalg.norm(permuted[expected_idx] - char_pt))
+        score = float(np.mean(residuals)) if residuals else float("inf")
+        if score < best_score:
+            best_score = score
+            best_perm = perm
+
+    return checker_corners[best_perm]
 
 
 def _init_logging() -> None:
@@ -60,7 +163,19 @@ def _detect_checkerboard(
         0.001,
     )
     cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
-    return image_path, True, corners.reshape(-1, 2), (gray.shape[1], gray.shape[0])
+    corners_2d = corners.reshape(-1, 2)
+
+    if HAS_CHARUCO_MARKERS:
+        try:
+            corners_2d = _reorder_corners_with_charuco(gray, corners_2d, checkerboard_size)
+        except (AttributeError, cv2.error, ValueError) as exc:
+            logging.warning(
+                "ChArUco orientation step failed for %s. Using plain checkerboard ordering. Reason: %s",
+                image_path.name,
+                exc,
+            )
+
+    return image_path, True, corners_2d, (gray.shape[1], gray.shape[0])
 
 
 def _prepare_object_points(

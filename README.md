@@ -13,10 +13,15 @@
 - Python 3.8+ (3.14 recommended)
 - See requirements.txt for dependencies
 - `pip install -r requirements.txt`
+- Note: ChArUco support requires the contrib OpenCV package (`opencv-contrib-python`), which is included in requirements.
 
 ## Configuration
 Edit the following lines at the top of `quick_calib.py` to configure it:
 - Checkerboard size: `CHECKERBOARD_SIZE = (cols, rows)`
+- Optional ChArUco mode for checkerboards with ArUco markers:
+    - `HAS_CHARUCO_MARKERS = True` enables marker-assisted orientation handling.
+    - `CHARUCO_ARUCO_DICT`, `CHARUCO_SQUARES_X`, `CHARUCO_SQUARES_Y`, and `CHARUCO_MARKER_LENGTH` can be adjusted to match your board.
+    - If your board has no markers, leave `HAS_CHARUCO_MARKERS = False`.
 - Optional pixel size in micrometers : `PIXEL_SIZE_UM = 4.8`
     - If `PIXEL_SIZE_UM` is set to zero, then the focal length will NOT be calculated in milimeters, andd the line will be omitted from the summary.
 - Because `cv2.calibrateCamera` is really slow on large number of input images, and the runtime scales almost exponentially, there is a configurable variable to limit the maximum number of images to be used in calibration.
