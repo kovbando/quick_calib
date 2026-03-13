@@ -1,3 +1,11 @@
+# THIS IS THE ChArUco branch
+# TODO
+- Update README.md for new features
+- Document user configurable settings
+- clean up code structure
+- Split code
+- Add absolute sizes for the calibration target, not just relative ones
+
 # quick_calib
 - Camera calibration tool for generating a 3x3 intrinsic matrix from checkerboard images.
 - For **way better** results use a calibration object with a white bezel around the checkerboard pattern
