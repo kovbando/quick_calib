@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
-from typing import Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -65,15 +65,9 @@ def _generate_orientation_permutations(cols: int, rows: int) -> List[np.ndarray]
     return [p.reshape(-1) for p in permutations]
 
 
-def _reorder_corners_with_charuco(
+def _detect_charuco_observations(
     gray: np.ndarray,
-    checker_corners: np.ndarray,
-    checkerboard_size: Tuple[int, int],
-) -> np.ndarray:
-    cols, rows = checkerboard_size
-    if checker_corners.shape[0] != cols * rows:
-        return checker_corners
-
+) -> Tuple[Optional[List[np.ndarray]], Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
     aruco = cv2.aruco
     dictionary = _get_aruco_dictionary(CHARUCO_ARUCO_DICT)
     params = aruco.DetectorParameters()
@@ -83,7 +77,7 @@ def _reorder_corners_with_charuco(
         parameters=params,
     )
     if marker_ids is None or len(marker_ids) == 0:
-        return checker_corners
+        return marker_corners, marker_ids, None, None
 
     board = _create_charuco_board(
         CHARUCO_SQUARES_X,
@@ -98,33 +92,104 @@ def _reorder_corners_with_charuco(
         gray,
         board,
     )
-    if charuco_ids is None or charuco_corners is None or len(charuco_ids) < 4:
-        return checker_corners
+    return marker_corners, marker_ids, charuco_corners, charuco_ids
+
+
+def _reorder_corners_with_charuco(
+    checker_corners: np.ndarray,
+    checkerboard_size: Tuple[int, int],
+    marker_corners: Optional[List[np.ndarray]],
+    marker_ids: Optional[np.ndarray],
+    charuco_corners: Optional[np.ndarray],
+    charuco_ids: Optional[np.ndarray],
+) -> Tuple[np.ndarray, bool, bool, int]:
+    cols, rows = checkerboard_size
+    if checker_corners.shape[0] != cols * rows:
+        return checker_corners, False, False, 0
+
+    if marker_ids is None or marker_corners is None or len(marker_ids) < 3:
+        return checker_corners, False, False, 0
+
+    board = _create_charuco_board(
+        CHARUCO_SQUARES_X,
+        CHARUCO_SQUARES_Y,
+        SQUARE_SIZE,
+        CHARUCO_MARKER_LENGTH,
+        _get_aruco_dictionary(CHARUCO_ARUCO_DICT),
+    )
+
+    if hasattr(board, "getChessboardCorners"):
+        board_corners_3d = board.getChessboardCorners()
+    else:
+        board_corners_3d = board.chessboardCorners
+    board_corners_2d = np.asarray(board_corners_3d, dtype=np.float32).reshape(-1, 3)[:, :2]
+    if board_corners_2d.shape[0] != cols * rows:
+        return checker_corners, False, False, 0
+
+    if hasattr(board, "getIds"):
+        board_marker_ids = np.asarray(board.getIds()).reshape(-1)
+    else:
+        board_marker_ids = np.asarray(board.ids).reshape(-1)
+    if hasattr(board, "getObjPoints"):
+        board_marker_obj_points = board.getObjPoints()
+    else:
+        board_marker_obj_points = board.objPoints
+
+    marker_center_by_id: Dict[int, np.ndarray] = {}
+    for bid, obj in zip(board_marker_ids, board_marker_obj_points):
+        obj = np.asarray(obj, dtype=np.float32).reshape(-1, 3)
+        marker_center_by_id[int(bid)] = np.mean(obj[:, :2], axis=0)
+
+    detected_marker_centers: List[Tuple[int, np.ndarray]] = []
+    for detected_id, detected_corners in zip(marker_ids.flatten(), marker_corners):
+        det_id = int(detected_id)
+        if det_id in marker_center_by_id:
+            det_corners_2d = np.asarray(detected_corners, dtype=np.float32).reshape(-1, 2)
+            detected_marker_centers.append((det_id, np.mean(det_corners_2d, axis=0)))
+
+    if len(detected_marker_centers) < 3:
+        return checker_corners, False, False, len(detected_marker_centers)
 
     expected_count = cols * rows
     valid_pairs: List[Tuple[int, np.ndarray]] = []
-    for char_id, corner in zip(charuco_ids.flatten(), charuco_corners.reshape(-1, 2)):
-        if 0 <= int(char_id) < expected_count:
-            valid_pairs.append((int(char_id), corner))
+    if charuco_ids is not None and charuco_corners is not None:
+        for char_id, corner in zip(charuco_ids.flatten(), charuco_corners.reshape(-1, 2)):
+            if 0 <= int(char_id) < expected_count:
+                valid_pairs.append((int(char_id), corner))
 
-    if len(valid_pairs) < 4:
-        return checker_corners
+    matched_observations = max(len(detected_marker_centers), len(valid_pairs))
 
     permutations = _generate_orientation_permutations(cols, rows)
     best_score = float("inf")
     best_perm = permutations[0]
+    best_index = 0
 
-    for perm in permutations:
+    for idx, perm in enumerate(permutations):
         permuted = checker_corners[perm]
-        residuals = []
+        homography, _ = cv2.findHomography(board_corners_2d, permuted.astype(np.float32), 0)
+        if homography is None:
+            continue
+
+        residuals: List[float] = []
+
+        for marker_id, marker_center_img in detected_marker_centers:
+            board_center = marker_center_by_id[marker_id].reshape(1, 1, 2)
+            projected = cv2.perspectiveTransform(board_center.astype(np.float32), homography)
+            projected_pt = projected.reshape(2)
+            residuals.append(float(np.linalg.norm(projected_pt - marker_center_img)))
+
         for expected_idx, char_pt in valid_pairs:
-            residuals.append(np.linalg.norm(permuted[expected_idx] - char_pt))
+            residuals.append(float(np.linalg.norm(permuted[expected_idx] - char_pt)))
+
         score = float(np.mean(residuals)) if residuals else float("inf")
         if score < best_score:
             best_score = score
             best_perm = perm
+            best_index = idx
 
-    return checker_corners[best_perm]
+    reordered = checker_corners[best_perm]
+    orientation_corrected = best_index != 0
+    return reordered, True, orientation_corrected, matched_observations
 
 
 def _init_logging() -> None:
@@ -142,10 +207,16 @@ def _list_images(input_dir: Path) -> List[Path]:
 
 def _detect_checkerboard(
     image_path: Path, checkerboard_size: Tuple[int, int]
-) -> Tuple[Path, bool, Optional[np.ndarray], Optional[Tuple[int, int]]]:
+) -> Tuple[
+    Path,
+    bool,
+    Optional[np.ndarray],
+    Optional[Tuple[int, int]],
+    Optional[Dict[str, Any]],
+]:
     image = cv2.imread(str(image_path))
     if image is None:
-        return image_path, False, None, None
+        return image_path, False, None, None, None
 
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     flags = (
@@ -155,7 +226,7 @@ def _detect_checkerboard(
     )
     found, corners = cv2.findChessboardCorners(gray, checkerboard_size, flags)
     if not found:
-        return image_path, False, None, None
+        return image_path, False, None, None, None
 
     criteria = (
         cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_MAX_ITER,
@@ -164,18 +235,45 @@ def _detect_checkerboard(
     )
     cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
     corners_2d = corners.reshape(-1, 2)
+    charuco_debug: Optional[Dict[str, Any]] = None
 
     if HAS_CHARUCO_MARKERS:
         try:
-            corners_2d = _reorder_corners_with_charuco(gray, corners_2d, checkerboard_size)
+            marker_corners, marker_ids, charuco_corners, charuco_ids = _detect_charuco_observations(gray)
+            corners_2d, charuco_used, orientation_corrected, matched_pairs = _reorder_corners_with_charuco(
+                corners_2d,
+                checkerboard_size,
+                marker_corners,
+                marker_ids,
+                charuco_corners,
+                charuco_ids,
+            )
+            charuco_debug = {
+                "marker_corners": marker_corners,
+                "marker_ids": marker_ids,
+                "charuco_corners": charuco_corners,
+                "charuco_ids": charuco_ids,
+                "charuco_used": charuco_used,
+                "orientation_corrected": orientation_corrected,
+                "matched_pairs": matched_pairs,
+            }
         except (AttributeError, cv2.error, ValueError) as exc:
             logging.warning(
                 "ChArUco orientation step failed for %s. Using plain checkerboard ordering. Reason: %s",
                 image_path.name,
                 exc,
             )
+            charuco_debug = {
+                "marker_corners": None,
+                "marker_ids": None,
+                "charuco_corners": None,
+                "charuco_ids": None,
+                "charuco_used": False,
+                "orientation_corrected": False,
+                "matched_pairs": 0,
+            }
 
-    return image_path, True, corners_2d, (gray.shape[1], gray.shape[0])
+    return image_path, True, corners_2d, (gray.shape[1], gray.shape[0]), charuco_debug
 
 
 def _prepare_object_points(
@@ -203,10 +301,11 @@ def _compute_reprojection_error(
 
 def _run_detection(
     image_paths: Iterable[Path], checkerboard_size: Tuple[int, int]
-) -> Tuple[List[Path], List[np.ndarray], List[Tuple[int, int]]]:
+) -> Tuple[List[Path], List[np.ndarray], List[Tuple[int, int]], List[Optional[Dict[str, Any]]]]:
     valid_paths: List[Path] = []
     image_points: List[np.ndarray] = []
     image_sizes: List[Tuple[int, int]] = []
+    charuco_debug_infos: List[Optional[Dict[str, Any]]] = []
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
         futures = [
@@ -218,16 +317,26 @@ def _run_detection(
             total=len(futures),
             desc="Detecting checkerboards",
         ):
-            image_path, found, corners, image_size = future.result()
+            image_path, found, corners, image_size, charuco_debug = future.result()
             if found and corners is not None and image_size is not None:
                 valid_paths.append(image_path)
                 image_points.append(corners)
                 image_sizes.append(image_size)
+                charuco_debug_infos.append(charuco_debug)
                 logging.info("Found checkerboard in %s", image_path.name)
+                if HAS_CHARUCO_MARKERS and charuco_debug is not None:
+                    logging.info(
+                        "ChArUco status %s: markers=%d, matched_pairs=%d, used=%s, corrected=%s",
+                        image_path.name,
+                        int(len(charuco_debug.get("marker_ids"))) if charuco_debug.get("marker_ids") is not None else 0,
+                        int(charuco_debug.get("matched_pairs", 0)),
+                        bool(charuco_debug.get("charuco_used", False)),
+                        bool(charuco_debug.get("orientation_corrected", False)),
+                    )
             else:
                 logging.info("No checkerboard in %s", image_path.name)
 
-    return valid_paths, image_points, image_sizes
+    return valid_paths, image_points, image_sizes, charuco_debug_infos
 
 
 def _save_matrix(found_dir: Path, camera_matrix: np.ndarray) -> None:
@@ -364,9 +473,17 @@ def _copy_found_images(
     image_paths: Iterable[Path],
     image_points: Iterable[np.ndarray],
     checkerboard_size: Tuple[int, int],
+    charuco_debug_infos: Optional[Iterable[Optional[Dict[str, Any]]]] = None,
 ) -> None:
+    image_paths = list(image_paths)
+    image_points = list(image_points)
     found_dir.mkdir(parents=True, exist_ok=True)
-    for image_path, corners in zip(image_paths, image_points):
+    if charuco_debug_infos is None:
+        charuco_debug_infos = [None] * len(image_paths)
+    else:
+        charuco_debug_infos = list(charuco_debug_infos)
+
+    for image_path, corners, charuco_debug in zip(image_paths, image_points, charuco_debug_infos):
         image = cv2.imread(str(image_path))
         output_path = found_dir / image_path.name
 
@@ -381,6 +498,56 @@ def _copy_found_images(
         # drawChessboardCorners expects Nx1x2 corner shape.
         corners_for_draw = corners.reshape(-1, 1, 2).astype(np.float32)
         cv2.drawChessboardCorners(image, checkerboard_size, corners_for_draw, True)
+
+        if HAS_CHARUCO_MARKERS and charuco_debug is not None:
+            marker_corners = charuco_debug.get("marker_corners")
+            marker_ids = charuco_debug.get("marker_ids")
+            charuco_corners = charuco_debug.get("charuco_corners")
+            charuco_ids = charuco_debug.get("charuco_ids")
+            charuco_used = bool(charuco_debug.get("charuco_used", False))
+            orientation_corrected = bool(charuco_debug.get("orientation_corrected", False))
+            matched_pairs = int(charuco_debug.get("matched_pairs", 0))
+
+            if marker_corners is not None and marker_ids is not None and len(marker_ids) > 0:
+                cv2.aruco.drawDetectedMarkers(image, marker_corners, marker_ids)
+
+            if charuco_corners is not None and charuco_ids is not None:
+                for cid, cpt in zip(charuco_ids.flatten(), charuco_corners.reshape(-1, 2)):
+                    x = int(round(float(cpt[0])))
+                    y = int(round(float(cpt[1])))
+                    cv2.circle(image, (x, y), 4, (0, 0, 255), 1, cv2.LINE_AA)
+                    cv2.putText(
+                        image,
+                        str(int(cid)),
+                        (x + 6, y - 6),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45,
+                        (0, 0, 255),
+                        1,
+                        cv2.LINE_AA,
+                    )
+
+            marker_count = int(len(marker_ids)) if marker_ids is not None else 0
+            status_lines = [
+                f"ArUco markers: {marker_count}",
+                f"ChArUco pairs used: {matched_pairs}",
+                f"Used for orientation: {'YES' if charuco_used else 'NO'}",
+                f"Orientation corrected: {'YES' if orientation_corrected else 'NO'}",
+            ]
+            y0 = 24
+            for line in status_lines:
+                cv2.putText(
+                    image,
+                    line,
+                    (10, y0),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (20, 220, 20),
+                    2,
+                    cv2.LINE_AA,
+                )
+                y0 += 24
+
         cv2.imwrite(str(output_path), image)
 
 
@@ -401,16 +568,18 @@ def _select_calibration_subset(
     valid_paths: List[Path],
     image_points: List[np.ndarray],
     image_sizes: List[Tuple[int, int]],
+    charuco_debug_infos: List[Optional[Dict[str, Any]]],
     max_images: int,
-) -> Tuple[List[Path], List[np.ndarray], List[Tuple[int, int]]]:
+) -> Tuple[List[Path], List[np.ndarray], List[Tuple[int, int]], List[Optional[Dict[str, Any]]]]:
     if max_images <= 0 or len(valid_paths) <= max_images:
-        return valid_paths, image_points, image_sizes
+        return valid_paths, image_points, image_sizes, charuco_debug_infos
 
     indices = np.linspace(0, len(valid_paths) - 1, max_images, dtype=int)
     selected_paths = [valid_paths[i] for i in indices]
     selected_points = [image_points[i] for i in indices]
     selected_sizes = [image_sizes[i] for i in indices]
-    return selected_paths, selected_points, selected_sizes
+    selected_charuco_infos = [charuco_debug_infos[i] for i in indices]
+    return selected_paths, selected_points, selected_sizes, selected_charuco_infos
 
 
 def main() -> int:
@@ -436,7 +605,7 @@ def main() -> int:
         return 1
 
     logging.info("Found %d images", len(image_paths))
-    valid_paths, image_points, image_sizes = _run_detection(
+    valid_paths, image_points, image_sizes, charuco_debug_infos = _run_detection(
         image_paths, CHECKERBOARD_SIZE
     )
 
@@ -445,7 +614,13 @@ def main() -> int:
         return 1
 
     found_dir = input_dir / "found"
-    _copy_found_images(found_dir, valid_paths, image_points, CHECKERBOARD_SIZE)
+    _copy_found_images(
+        found_dir,
+        valid_paths,
+        image_points,
+        CHECKERBOARD_SIZE,
+        charuco_debug_infos,
+    )
     logging.info("Copied %d images to %s", len(valid_paths), found_dir)
     total_valid_images = len(valid_paths)
 
@@ -456,10 +631,11 @@ def main() -> int:
             MAX_CALIB_IMAGES,
             skip_count,
         )
-    valid_paths, image_points, image_sizes = _select_calibration_subset(
+    valid_paths, image_points, image_sizes, charuco_debug_infos = _select_calibration_subset(
         valid_paths,
         image_points,
         image_sizes,
+        charuco_debug_infos,
         MAX_CALIB_IMAGES,
     )
 
