@@ -17,9 +17,9 @@ CHECKERBOARD_SIZE = (8, 11)
 SQUARE_SIZE = 1.0
 # Set to True for checkerboards decorated with ChArUco markers.
 # When enabled, ArUco/ChArUco detections are used to stabilize checkerboard orientation.
-HAS_CHARUCO_MARKERS = False
-# OpenCV ArUco dictionary name. Examples: DICT_4X4_50, DICT_5X5_100.
-CHARUCO_ARUCO_DICT = "DICT_4X4_50"
+HAS_CHARUCO_MARKERS = True
+# OpenCV ArUco dictionary name. Examples: DICT_4X4_50, DICT_5X5_1000.
+CHARUCO_ARUCO_DICT = "DICT_5X5_1000"
 # Number of checker squares in X/Y for ChArUco board creation.
 # For a checkerboard with inner corners (cols, rows), these are typically (cols + 1, rows + 1).
 CHARUCO_SQUARES_X = CHECKERBOARD_SIZE[0] + 1
