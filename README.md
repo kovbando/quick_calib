@@ -5,6 +5,7 @@
 - clean up code structure
 - Split code
 - Add absolute sizes for the calibration target, not just relative ones
+- Addd some documentation for the bat/cmd files
 
 # quick_calib
 - Camera calibration tool for generating a 3x3 intrinsic matrix from checkerboard images.
